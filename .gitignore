@@ -1,5 +1,5 @@
 # Python
-backend/venv/
+backend/venv_new/
 __pycache__/
 *.pyc
 
