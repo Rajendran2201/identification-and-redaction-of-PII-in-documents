@@ -1,6 +1,9 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
 import torch
 import cv2
 import numpy as np
@@ -13,7 +16,7 @@ import uuid
 from typing import List, Optional, Dict, Any
 import logging
 import json
-
+import requests 
 # Presidio imports
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
@@ -56,30 +59,54 @@ presidio_anonymizer = None
 ocr_reader = None
 
 class YOLOModel:
-    def __init__(self, model_path="weights/best.pt"):
-        """Initialize YOLO model with enhanced error handling"""
+    def __init__(self, model_url="https://anonify-pii-model.s3.ap-south-1.amazonaws.com/best.pt", model_path="/tmp/best.pt"):
+        """Initialize YOLO model with S3 download"""
         try:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             
+            # Use /tmp directory for Vercel serverless
             if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model file not found: {model_path}")
+                logger.info(f"Downloading model from S3: {model_url}")
+                
+                # Create directory if needed
+                os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                
+                # Download with timeout and error handling
+                try:
+                    response = requests.get(model_url, stream=True, timeout=300)
+                    response.raise_for_status()
+                    
+                    total_size = int(response.headers.get('content-length', 0))
+                    logger.info(f"Downloading model ({total_size / (1024*1024):.1f} MB)...")
+                    
+                    with open(model_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                    
+                    logger.info("Model downloaded successfully")
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"Failed to download model: {e}")
+                    raise
             
-            # Try multiple loading methods
+            # Load the model
             try:
                 from ultralytics import YOLO
                 self.model = YOLO(model_path)
                 self.model.to(self.device)
                 self.model_type = "ultralytics"
-                logger.info(f"YOLO model loaded successfully using Ultralytics on {self.device}")
+                logger.info(f"YOLO model loaded successfully on {self.device}")
             except ImportError:
+                # Fallback to torch hub if ultralytics not available
                 try:
                     self.model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path, trust_repo=True)
                     self.model.to(self.device)
                     self.model_type = "torch_hub"
-                    logger.info(f"YOLO model loaded successfully using torch.hub on {self.device}")
+                    logger.info(f"YOLO model loaded via torch.hub on {self.device}")
                 except Exception as e:
                     logger.error(f"Failed to load YOLO model: {e}")
                     raise
+                    
         except Exception as e:
             logger.error(f"Error initializing YOLO model: {e}")
             raise
@@ -361,7 +388,7 @@ async def startup_event():
     try:
         # Initialize YOLO model
         try:
-            yolo_model = YOLOModel("weights/best.pt")
+            yolo_model = YOLOModel("https://anonify-pii-model.s3.ap-south-1.amazonaws.com/best.pt")
             logger.info("YOLO model initialized successfully")
         except Exception as e:
             logger.warning(f"YOLO model initialization failed: {e}")
@@ -439,7 +466,7 @@ def extract_images_from_pdf(pdf_bytes: bytes) -> List[Image.Image]:
         raise
 
 # API Endpoints
-@app.get("/")
+@app.get("/api")  # Changed from "/" to "/api"
 async def root():
     return {
         "message": "Enhanced PII Redaction API with Presidio",
@@ -856,6 +883,19 @@ async def custom_anonymization(
     except Exception as e:
         logger.error(f"Error in custom anonymization: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+if os.path.exists("frontend/build"):
+    app.mount("/static", StaticFiles(directory="frontend/build/static"), name="static")
+    
+    @app.get("/", response_class=FileResponse)
+    async def serve_react_app():
+        return FileResponse("frontend/build/index.html")
+    
+    @app.get("/{path:path}")
+    async def catch_all(path: str):
+        if path.startswith(("api", "docs", "redoc", "openapi.json")):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+        return FileResponse("frontend/build/index.html")
 
 if __name__ == "__main__":
     import uvicorn
