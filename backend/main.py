@@ -1,6 +1,9 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
 import torch
 import cv2
 import numpy as np
@@ -13,7 +16,7 @@ import uuid
 from typing import List, Optional, Dict, Any
 import logging
 import json
-
+import requests 
 # Presidio imports
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
@@ -385,7 +388,7 @@ async def startup_event():
     try:
         # Initialize YOLO model
         try:
-            yolo_model = YOLOModel("weights/best.pt")
+            yolo_model = YOLOModel("https://anonify-pii-model.s3.ap-south-1.amazonaws.com/best.pt")
             logger.info("YOLO model initialized successfully")
         except Exception as e:
             logger.warning(f"YOLO model initialization failed: {e}")
@@ -463,7 +466,7 @@ def extract_images_from_pdf(pdf_bytes: bytes) -> List[Image.Image]:
         raise
 
 # API Endpoints
-@app.get("/")
+@app.get("/api")  # Changed from "/" to "/api"
 async def root():
     return {
         "message": "Enhanced PII Redaction API with Presidio",
@@ -880,6 +883,19 @@ async def custom_anonymization(
     except Exception as e:
         logger.error(f"Error in custom anonymization: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+if os.path.exists("frontend/build"):
+    app.mount("/static", StaticFiles(directory="frontend/build/static"), name="static")
+    
+    @app.get("/", response_class=FileResponse)
+    async def serve_react_app():
+        return FileResponse("frontend/build/index.html")
+    
+    @app.get("/{path:path}")
+    async def catch_all(path: str):
+        if path.startswith(("api", "docs", "redoc", "openapi.json")):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+        return FileResponse("frontend/build/index.html")
 
 if __name__ == "__main__":
     import uvicorn
