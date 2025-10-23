@@ -131,6 +131,72 @@ For the full list, refer to `requirements.txt` and `package.json`.
 
 ---
 
+## Architecture
+
+```mermaid
+graph TD
+    %% Frontend Section
+    subgraph A[Frontend - React + Tailwind CSS]
+        style A fill:#F0F9FF,stroke:#38BDF8,stroke-width:1.5px,color:#0369A1
+        A1[User Interface]:::frontend -->|Uploads documents / images| A2[Request Handler]:::frontend
+    end
+
+    %% Backend Section
+    subgraph B[Backend - FastAPI]
+        style B fill:#FFFBEB,stroke:#FACC15,stroke-width:1.5px,color:#854D0E
+        B1[API Gateway / Router]:::backend
+        B2[Inference Engine]:::backend
+        B3[Model Manager]:::backend
+        B4[Preprocessing & Postprocessing]:::backend
+        B1 --> B2
+        B2 --> B3
+        B2 --> B4
+    end
+
+    %% Model Section
+    subgraph C[Models]
+        style C fill:#FEF2F2,stroke:#F87171,stroke-width:1.5px,color:#7F1D1D
+        C1[YOLOv8 - Object Detection]:::model
+        C2[Donut Model - Document Parsing]:::model
+        B3 --> C1
+        B3 --> C2
+    end
+
+    %% Storage & System Components
+    subgraph D[System Components]
+        style D fill:#ECFDF5,stroke:#4ADE80,stroke-width:1.5px,color:#065F46
+        D1[File Storage / Uploads]:::storage
+        D2[Logs & Metadata]:::storage
+        D3[Virtual Environment / Dependency Management]:::storage
+    end
+
+    %% Connections
+    A2 -->|Sends REST API Requests - JSON / File Upload| B1
+    B4 -->|PII Results - Detected Fields, Bounding Boxes| A1
+    B2 --> D2
+    B1 --> D1
+    B --> D3
+
+    %% External Integrations
+    subgraph E[Deployment & Infrastructure]
+        style E fill:#F5F3FF,stroke:#A78BFA,stroke-width:1.5px,color:#4C1D95
+        E1[Docker / Containerization]:::infra
+        E2[CI/CD Pipeline]:::infra
+    end
+
+    D3 --> E1
+    E1 --> E2
+
+    %% Styles
+    classDef frontend fill:#E0F2FE,stroke:#38BDF8,color:#0369A1;
+    classDef backend fill:#FEF9C3,stroke:#FACC15,color:#854D0E;
+    classDef model fill:#FEE2E2,stroke:#F87171,color:#7F1D1D;
+    classDef storage fill:#DCFCE7,stroke:#4ADE80,color:#065F46;
+    classDef infra fill:#EDE9FE,stroke:#A78BFA,color:#4C1D95;
+
+
+```
+
 ## Contributing
 
 Contributions are encouraged. Please fork the repository, make your changes, and submit a pull request for review.
